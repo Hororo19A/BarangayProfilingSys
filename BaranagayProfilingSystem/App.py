@@ -1,45 +1,57 @@
-from flask import Flask, request, redirect, url_for
+from flask import Flask, request, redirect, session, flash
 from Controls.BaseControl import BaseController
-from Controls.AdminControl import admin_bp
-from Controls.UserControl import user_bp
+from Controls.BarangayProfileBE import user_bp  # Blueprint for user routes
 
-app = Flask(__name__, template_folder="Design")
-app.secret_key = "supersecret"
+# ------------------- App Setup -------------------
+app = Flask(
+    __name__,
+    template_folder="Design",  # Templates folder
+    static_folder="static"     # Static folder
+)
+app.secret_key = "your_secret_key_here"  # Replace with a strong secret key
 
-base_ctrl = BaseController()
+# Base controller instance
+base = BaseController()
 
-# ---------------- Register Blueprints ----------------
-app.register_blueprint(admin_bp)
-app.register_blueprint(user_bp)
+# ------------------- Register Blueprint -------------------
+app.register_blueprint(user_bp)  # Registers all /user routes
 
-# ---------------- HOME / LOGIN & SIGNUP ----------------
-@app.route("/", methods=["GET"])
-def index():
-    if base_ctrl.is_logged_in():
-        user_type = base_ctrl.get_user_type()
-        if user_type == "admin":
-            return redirect(url_for("admin.dashboard"))
-        elif user_type == "user":
-            return redirect(url_for("user.user_dashboard"))
+# ------------------- Routes -------------------
 
-    show_signup = request.args.get("signup") == "1"
-    return base_ctrl.render("Login.html", signup=show_signup)
-
-# ---------------- LOGIN ----------------
-@app.route("/login", methods=["POST"])
+@app.route("/", methods=["GET", "POST"])
 def login():
-    return base_ctrl.handle_login()
+    """
+    Handle login page and signup page display.
+    Redirect already logged-in users to dashboard.
+    """
+    # Redirect if already logged in
+    if base.is_logged_in():
+        return redirect("/user/dashboard")
 
-# ---------------- SIGNUP ----------------
-@app.route("/signup", methods=["POST"])
-def signup():
-    return base_ctrl.handle_signup()
+    signup = request.args.get("signup", "0") == "1"
 
-# ---------------- LOGOUT ----------------
+    if request.method == "POST":
+        if signup:
+            # Handle user signup
+            return base.handle_signup()
+        else:
+            # Handle user login
+            return base.handle_login()
+
+    # Render login page
+    return base.render("Login.html", signup=signup)
+
+
 @app.route("/logout")
 def logout():
-    base_ctrl.logout_user()
+    """
+    Logs out the current user and redirects to login page.
+    """
+    base.logout_user()
+    flash("Logged out successfully.", "success")
     return redirect("/")
 
+
+# ------------------- Run App -------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=5000)

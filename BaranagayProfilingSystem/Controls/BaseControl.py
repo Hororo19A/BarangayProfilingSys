@@ -1,97 +1,96 @@
 from flask import render_template, session, request, redirect, flash
-
 import mysql.connector
 
-def get_db():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="temporary"
-    )
-
+# ---------- Base Controller ----------
 class BaseController:
 
-    # ---------- RENDER ----------
+    def __init__(self, template_folder="Design"):
+        self.template_folder = template_folder
+
+    # ---------- Database Connection ----------
+    def db_connect(self):
+        return mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="temporary1"
+        )
+
+    # ---------- Render ----------
     def render(self, template_name, **kwargs):
         return render_template(template_name, **kwargs)
 
-    # ---------- SESSION ----------
+    # ---------- Session Management ----------
     def is_logged_in(self):
         return "user" in session
 
     def get_user_type(self):
-        return session.get("user", {}).get("type")
+        return session.get("user", {}).get("Type")
 
     def get_username(self):
-        return session.get("user", {}).get("username")
+        return session.get("user", {}).get("Username")
 
-    def login_user(self, username, user_type):
-        session["user"] = {"username": username, "type": user_type}
+    def login_user(self, user_dict):
+        # Store safe user info in session
+        session["user"] = {
+            "FirstName": user_dict.get("FirstName"),
+            "MiddleName": user_dict.get("MiddleName"),
+            "LastName": user_dict.get("LastName"),
+            "Username": user_dict.get("Username"),
+            "Type": user_dict.get("Type", "user")
+        }
 
     def logout_user(self):
         session.clear()
 
-    # ---------- LOGIN ----------
-    def validate_login(self, username, password):
-        db = get_db()
-        cursor = db.cursor(dictionary=True)
-
-        # Check admin
-        cursor.execute("SELECT * FROM adminacc WHERE Username=%s AND Password=%s",
-                       (username, password))
-        admin = cursor.fetchone()
-        if admin:
-            cursor.close()
-            db.close()
-            return "admin"
-
-        # Check user
-        cursor.execute("SELECT * FROM useracc WHERE Username=%s AND Password=%s",
-                       (username, password))
-        user = cursor.fetchone()
-        cursor.close()
-        db.close()
-        if user:
-            return "user"
-
-        return None
-
+    # ---------- Login ----------
     def handle_login(self):
-        username = request.form.get("username")
-        password = request.form.get("password")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
 
         if not username or not password:
             flash("Username and password are required.", "danger")
             return redirect("/")
 
-        user_type = self.validate_login(username, password)
-        if not user_type:
+        db = self.db_connect()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM useracc WHERE Username=%s AND Password=%s", (username, password))
+        user = cursor.fetchone()
+        cursor.close()
+        db.close()
+
+        if not user:
             flash("Invalid username or password.", "danger")
             return redirect("/")
 
-        self.login_user(username, user_type)
+        # Login user (without password)
+        self.login_user({
+            "FirstName": user["FirstName"],
+            "MiddleName": user["MiddleName"],
+            "LastName": user["LastName"],
+            "Username": user["Username"],
+            "Type": "user"
+        })
 
-        if user_type == "admin":
-            return redirect("/admin/dashboard")
-        else:
-            return redirect("/user/dashboard")
+        flash(f"Welcome, {user['FirstName']}!", "success")
+        return redirect("/user/dashboard")
 
-    # ---------- SIGNUP ----------
+    # ---------- Signup ----------
     def handle_signup(self):
-        fname = request.form.get("firstname")
-        mname = request.form.get("middlename")
-        lname = request.form.get("lastname")
-        username = request.form.get("username")
-        password = request.form.get("password")
+        fname = request.form.get("firstname", "").strip()
+        mname = request.form.get("middlename", "").strip()
+        lname = request.form.get("lastname", "").strip()
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
 
         if not fname or not lname or not username or not password:
             flash("All required fields must be filled.", "danger")
             return redirect("/?signup=1")
 
-        db = get_db()
+        db = self.db_connect()
         cursor = db.cursor(dictionary=True)
 
+        # Check if username already exists
         cursor.execute("SELECT * FROM useracc WHERE Username=%s", (username,))
         if cursor.fetchone():
             flash("Username already taken.", "danger")
@@ -99,6 +98,7 @@ class BaseController:
             db.close()
             return redirect("/?signup=1")
 
+        # Insert new user with plain password
         cursor.execute(
             "INSERT INTO useracc (FirstName, MiddleName, LastName, Username, Password) "
             "VALUES (%s, %s, %s, %s, %s)",
